@@ -1,0 +1,32 @@
+[package]
+name = "ebook-reader"
+version = "0.1.0"
+description = "Offline Ebook Reader with Tauri"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+tauri = { version = "1.6", features = ["dialog-open", "dialog-save", "dialog-message", "dialog-confirm", "fs-read-file", "fs-write-file", "fs-read-dir", "fs-create-dir", "fs-remove-file", "fs-rename-file", "fs-exists", "path-all", "shell-open", "window-close", "window-hide", "window-show", "window-maximize", "window-minimize", "window-unminimize", "window-start-dragging"]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rusqlite = { version = "0.31", features = ["bundled"] }
+tokio = { version = "1.35", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+zip = "0.6"
+epub = "1.2"
+walkdir = "2.3"
+anyhow = "1.0"
+thiserror = "1.0"
+image = "0.24"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
