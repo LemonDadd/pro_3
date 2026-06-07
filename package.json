@@ -8,8 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:dev": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri dev",
+    "tauri:build": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri build",
+    "tauri:build:debug": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri build --debug"
   },
   "dependencies": {
     "@tauri-apps/api": "^1.5.3",

@@ -92,7 +92,7 @@ impl EpubParser {
         if index >= self.doc.spine.len() {
             return Err(anyhow::anyhow!("Chapter index out of bounds"));
         }
-        self.doc.set_current_page(index);
+        self.doc.set_current_page(index).ok();
         Ok(())
     }
 
