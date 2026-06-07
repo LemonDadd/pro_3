@@ -9,7 +9,21 @@ import type { Bookmark, Highlight } from '../types';
 export default function Reader() {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
-  const { books, theme, readerSettings, updateBookProgress, getBookmarks, addBookmark, getHighlights } = useLibraryStore();
+  const {
+    books,
+    bookmarks,
+    highlights,
+    theme,
+    readerSettings,
+    isLoadingBookmarks,
+    isLoadingHighlights,
+    updateBookProgress,
+    fetchBookmarks,
+    fetchHighlights,
+    addBookmark,
+    removeBookmark,
+    addHighlight,
+  } = useLibraryStore();
 
   const [currentChapter, setCurrentChapter] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -25,11 +39,21 @@ export default function Reader() {
   const contentRef = useRef<HTMLDivElement>(null);
   const book = books.find((b) => b.id === bookId);
 
+  const bookBookmarks = bookmarks.filter((bm) => bm.bookId === bookId);
+  const bookHighlights = highlights.filter((hl) => hl.bookId === bookId);
+
   useEffect(() => {
     if (book) {
       setProgress(book.progress);
     }
   }, [book]);
+
+  useEffect(() => {
+    if (bookId) {
+      fetchBookmarks(bookId);
+      fetchHighlights(bookId);
+    }
+  }, [bookId, fetchBookmarks, fetchHighlights]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -39,13 +63,15 @@ export default function Reader() {
   }, []);
 
   useEffect(() => {
-    if (bookId && book) {
-      const bookmarked = getBookmarks(bookId).some(
+    if (bookId && bookBookmarks.length > 0) {
+      const bookmarked = bookBookmarks.some(
         (bm) => bm.location === Math.floor(progress)
       );
       setIsBookmarked(bookmarked);
+    } else {
+      setIsBookmarked(false);
     }
-  }, [bookId, progress, getBookmarks, book]);
+  }, [bookId, progress, bookBookmarks, book]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -63,28 +89,30 @@ export default function Reader() {
     setProgress(Math.min(100, progress + 10));
   }, [progress]);
 
-  const handleToggleBookmark = () => {
+  const handleToggleBookmark = async () => {
     if (!bookId || !book) return;
 
-    if (isBookmarked) {
-      const bookmarks = getBookmarks(bookId);
-      const bookmark = bookmarks.find((bm) => bm.location === Math.floor(progress));
-      if (bookmark) {
-        useLibraryStore.getState().removeBookmark(bookmark.id);
+    try {
+      if (isBookmarked) {
+        const bookmark = bookBookmarks.find((bm) => bm.location === Math.floor(progress));
+        if (bookmark) {
+          await removeBookmark(bookmark.id);
+          setIsBookmarked(false);
+        }
+      } else {
+        const bookmarkData: Omit<Bookmark, 'id' | 'createdAt'> = {
+          bookId,
+          cfi: `epubcfi(/6/${currentChapter + 10}!/4/2/2[page${Math.floor(progress)}]/2)`,
+          chapter: mockChapters[currentChapter]?.title || '',
+          location: Math.floor(progress),
+          text: '书签位置',
+        };
+        await addBookmark(bookmarkData);
+        setIsBookmarked(true);
       }
-    } else {
-      const newBookmark: Bookmark = {
-        id: Math.random().toString(36).substring(2, 15),
-        bookId,
-        cfi: `epubcfi(/6/${currentChapter + 10}!/4/2/2[page${Math.floor(progress)}]/2)`,
-        chapter: mockChapters[currentChapter]?.title || '',
-        location: Math.floor(progress),
-        text: '书签位置',
-        createdAt: Date.now(),
-      };
-      addBookmark(newBookmark);
+    } catch (error) {
+      console.error('书签操作失败:', error);
     }
-    setIsBookmarked(!isBookmarked);
   };
 
   const handleTextSelect = () => {
@@ -101,26 +129,27 @@ export default function Reader() {
     }
   };
 
-  const handleHighlight = (color: string) => {
+  const handleHighlight = async (color: string) => {
     if (!bookId || !selectedText) return;
 
-    const newHighlight: Highlight = {
-      id: Math.random().toString(36).substring(2, 15),
-      bookId,
-      cfi: `epubcfi(/6/${currentChapter + 10}!/4/2/2[hl${Date.now()}]/2)`,
-      color,
-      text: selectedText,
-      chapter: mockChapters[currentChapter]?.title || '',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    useLibraryStore.getState().addHighlight(newHighlight);
-    setShowHighlightMenu(false);
-    window.getSelection()?.removeAllRanges();
+    try {
+      const highlightData: Omit<Highlight, 'id' | 'createdAt' | 'updatedAt'> = {
+        bookId,
+        cfi: `epubcfi(/6/${currentChapter + 10}!/4/2/2[hl${Date.now()}]/2)`,
+        color,
+        text: selectedText,
+        chapter: mockChapters[currentChapter]?.title || '',
+      };
+      await addHighlight(highlightData);
+      setShowHighlightMenu(false);
+      window.getSelection()?.removeAllRanges();
+    } catch (error) {
+      console.error('添加高亮失败:', error);
+    }
   };
 
   useEffect(() => {
-    if (bookId) {
+    if (bookId && book) {
       updateBookProgress(bookId, {
         bookId,
         cfi: `epubcfi(/6/${currentChapter + 10}!/4/2/2[page${Math.floor(progress)}]/2)`,
@@ -130,7 +159,7 @@ export default function Reader() {
         updatedAt: Date.now(),
       });
     }
-  }, [progress, currentChapter, bookId, updateBookProgress]);
+  }, [progress, currentChapter, bookId, book, updateBookProgress]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -144,9 +173,18 @@ export default function Reader() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handlePrevChapter, handleNextChapter, showSidebar, showSettings]);
+  }, [handlePrevChapter, handleNextChapter, handleToggleBookmark, showSidebar, showSettings]);
 
-  if (!book) {
+  const handleSidebarTabChange = (tab: 'toc' | 'bookmarks' | 'highlights' | 'search') => {
+    setSidebarTab(tab);
+    if (tab === 'bookmarks' && bookId) {
+      fetchBookmarks(bookId);
+    } else if (tab === 'highlights' && bookId) {
+      fetchHighlights(bookId);
+    }
+  };
+
+  if (!book && books.length > 0) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
@@ -176,9 +214,9 @@ export default function Reader() {
             ←
           </button>
           <div>
-            <h1 className="font-medium text-sm">{book.title}</h1>
+            <h1 className="font-medium text-sm">{book?.title || '加载中...'}</h1>
             <p className="text-xs" style={{ color: 'var(--secondary-color)' }}>
-              {book.author} · {mockChapters[currentChapter]?.title}
+              {book?.author || ''} · {mockChapters[currentChapter]?.title}
             </p>
           </div>
         </div>
@@ -216,7 +254,7 @@ export default function Reader() {
           <ReaderSidebar
             bookId={bookId!}
             activeTab={sidebarTab}
-            onTabChange={setSidebarTab}
+            onTabChange={handleSidebarTabChange}
             onChapterSelect={(index) => {
               setCurrentChapter(index);
               setProgress((index / mockChapters.length) * 100);
@@ -238,12 +276,19 @@ export default function Reader() {
             onMouseUp={handleTextSelect}
             onClick={() => setShowHighlightMenu(false)}
           >
-            <div
-              className="max-w-2xl mx-auto"
-              dangerouslySetInnerHTML={{ __html: mockReadingContent }}
-            />
+            {!book ? (
+              <div className="flex flex-col items-center justify-center h-full">
+                <div className="animate-spin text-3xl mb-4">⏳</div>
+                <p style={{ color: 'var(--secondary-color)' }}>加载书籍中...</p>
+              </div>
+            ) : (
+              <div
+                className="max-w-2xl mx-auto"
+                dangerouslySetInnerHTML={{ __html: mockReadingContent }}
+              />
+            )}
 
-            {readerSettings.layout === 'paginated' && (
+            {readerSettings.layout === 'paginated' && book && (
               <div className="flex justify-center gap-4 mt-8">
                 <button
                   onClick={handlePrevChapter}

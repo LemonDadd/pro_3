@@ -8,7 +8,7 @@ import {
   mockSearchApi,
   mockExportApi,
   mockDialogApi,
-} from './mockApi';
+} from '../utils/mockApi';
 
 export const isTauri = typeof window !== 'undefined' && window.__TAURI__ !== undefined;
 

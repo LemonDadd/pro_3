@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import useLibraryStore from '../store/useLibraryStore';
 import { mockChapters, generateMockSearchResults } from '../utils/mockData';
+import type { Highlight } from '../types';
 
 interface ReaderSidebarProps {
   bookId: string;
@@ -17,14 +18,32 @@ export default function ReaderSidebar({
   onChapterSelect,
   onClose,
 }: ReaderSidebarProps) {
-  const { getBookmarks, getHighlights, removeBookmark, removeHighlight, books } = useLibraryStore();
-  const bookmarks = getBookmarks(bookId);
-  const highlights = getHighlights(bookId);
+  const {
+    bookmarks,
+    highlights,
+    notes,
+    books,
+    isLoadingBookmarks,
+    isLoadingHighlights,
+    isLoadingNotes,
+    removeBookmark,
+    removeHighlight,
+    removeNote,
+    updateHighlightNote,
+    updateNote,
+    fetchNotes,
+  } = useLibraryStore();
+
   const book = books.find((b) => b.id === bookId);
+  const bookBookmarks = bookmarks.filter((bm) => bm.bookId === bookId);
+  const bookHighlights = highlights.filter((hl) => hl.bookId === bookId);
+  const bookNotes = notes.filter((n) => n.bookId === bookId);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteContent, setEditingNoteContent] = useState('');
 
   const tabs = [
     { id: 'toc', label: '目录', icon: '📑' },
@@ -41,6 +60,36 @@ export default function ReaderSidebar({
       setSearchResults(results);
       setSearching(false);
     }, 300);
+  };
+
+  const handleDeleteBookmark = async (id: string) => {
+    try {
+      await removeBookmark(id);
+    } catch (error) {
+      console.error('删除书签失败:', error);
+    }
+  };
+
+  const handleDeleteHighlight = async (id: string) => {
+    try {
+      await removeHighlight(id);
+    } catch (error) {
+      console.error('删除高亮失败:', error);
+    }
+  };
+
+  const handleStartEditNote = (hl: Highlight) => {
+    setEditingNoteId(hl.id);
+    setEditingNoteContent(hl.note || '');
+  };
+
+  const handleSaveNote = async (highlightId: string) => {
+    try {
+      await updateHighlightNote(highlightId, editingNoteContent || undefined);
+      setEditingNoteId(null);
+    } catch (error) {
+      console.error('保存笔记失败:', error);
+    }
   };
 
   return (
@@ -100,13 +149,17 @@ export default function ReaderSidebar({
 
         {activeTab === 'bookmarks' && (
           <div className="py-2">
-            {bookmarks.length === 0 ? (
+            {isLoadingBookmarks && bookBookmarks.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm" style={{ color: 'var(--secondary-color)' }}>
+                加载中...
+              </div>
+            ) : bookBookmarks.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm" style={{ color: 'var(--secondary-color)' }}>
                 暂无书签
                 <p className="mt-1 text-xs">按 B 键添加书签</p>
               </div>
             ) : (
-              bookmarks.map((bm) => (
+              bookBookmarks.map((bm) => (
                 <div
                   key={bm.id}
                   className="px-4 py-3 border-b hover:bg-gray-50 dark:hover:bg-gray-800 group"
@@ -115,7 +168,7 @@ export default function ReaderSidebar({
                   <div className="flex items-start justify-between">
                     <p className="text-sm flex-1 line-clamp-2">{bm.chapter}</p>
                     <button
-                      onClick={() => removeBookmark(bm.id)}
+                      onClick={() => handleDeleteBookmark(bm.id)}
                       className="ml-2 opacity-0 group-hover:opacity-100 text-red-500 text-xs"
                     >
                       删除
@@ -132,13 +185,17 @@ export default function ReaderSidebar({
 
         {activeTab === 'highlights' && (
           <div className="py-2">
-            {highlights.length === 0 ? (
+            {isLoadingHighlights && bookHighlights.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm" style={{ color: 'var(--secondary-color)' }}>
+                加载中...
+              </div>
+            ) : bookHighlights.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm" style={{ color: 'var(--secondary-color)' }}>
                 暂无高亮
                 <p className="mt-1 text-xs">选中文本添加高亮</p>
               </div>
             ) : (
-              highlights.map((hl) => (
+              bookHighlights.map((hl) => (
                 <div
                   key={hl.id}
                   className="px-4 py-3 border-b group"
@@ -154,16 +211,51 @@ export default function ReaderSidebar({
                     />
                     <p className="text-sm flex-1">{hl.text}</p>
                     <button
-                      onClick={() => removeHighlight(hl.id)}
+                      onClick={() => handleDeleteHighlight(hl.id)}
                       className="ml-2 opacity-0 group-hover:opacity-100 text-red-500 text-xs"
                     >
                       删除
                     </button>
                   </div>
-                  {hl.note && (
-                    <p className="text-xs mt-2 ml-5 p-2 rounded bg-black/5" style={{ color: 'var(--secondary-color)' }}>
-                      💬 {hl.note}
-                    </p>
+                  {editingNoteId === hl.id ? (
+                    <div className="mt-2 ml-5">
+                      <textarea
+                        value={editingNoteContent}
+                        onChange={(e) => setEditingNoteContent(e.target.value)}
+                        className="w-full p-2 text-xs rounded border"
+                        style={{
+                          backgroundColor: 'var(--bg-color)',
+                          borderColor: 'rgba(128,128,128,0.3)',
+                          color: 'var(--text-color)',
+                        }}
+                        rows={3}
+                        placeholder="写点笔记..."
+                        autoFocus
+                      />
+                      <div className="flex gap-2 mt-1">
+                        <button
+                          onClick={() => handleSaveNote(hl.id)}
+                          className="px-2 py-1 text-xs bg-blue-500 text-white rounded"
+                        >
+                          保存
+                        </button>
+                        <button
+                          onClick={() => setEditingNoteId(null)}
+                          className="px-2 py-1 text-xs rounded"
+                          style={{ color: 'var(--secondary-color)' }}
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => handleStartEditNote(hl)}
+                      className="mt-2 ml-5 text-xs"
+                      style={{ color: 'var(--secondary-color)' }}
+                    >
+                      {hl.note ? `💬 ${hl.note}` : '+ 添加笔记'}
+                    </button>
                   )}
                   <p className="text-xs mt-2 ml-5" style={{ color: 'var(--secondary-color)' }}>
                     {hl.chapter}

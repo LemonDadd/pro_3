@@ -1,15 +1,25 @@
 import { useNavigate } from 'react-router-dom';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import useLibraryStore from '../store/useLibraryStore';
-import { generateMockBooks } from '../utils/mockData';
+import { dialogApi, isTauri } from '../api/tauri';
 import type { Book } from '../types';
 
 export default function Library() {
   const navigate = useNavigate();
-  const { books, addBook, removeBook, isLoading, setLoading } = useLibraryStore();
+  const {
+    books,
+    isLoading,
+    fetchBooks,
+    addBook,
+    removeBook,
+  } = useLibraryStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [showCategoryFilter, setShowCategoryFilter] = useState(false);
+  const [importing, setImporting] = useState(false);
+
+  useEffect(() => {
+    fetchBooks();
+  }, [fetchBooks]);
 
   const filteredBooks = useMemo(() => {
     if (!searchQuery) return books;
@@ -22,32 +32,44 @@ export default function Library() {
   }, [books, searchQuery]);
 
   const handleImportBook = async () => {
-    setLoading(true);
+    if (importing) return;
+
     try {
-      if (books.length === 0) {
-        const mockBooks = generateMockBooks(5);
-        mockBooks.forEach((book) => addBook(book));
-      } else {
-        const newBook = generateMockBooks(1)[0];
-        addBook(newBook);
+      setImporting(true);
+      const filePath = await dialogApi.openFileDialog();
+
+      if (!filePath) {
+        setImporting(false);
+        return;
+      }
+
+      const book = await addBook(filePath);
+      if (book && !isTauri) {
+        // Mock 模式下不需要做额外处理
       }
     } catch (error) {
       console.error('导入失败:', error);
     } finally {
-      setLoading(false);
+      setImporting(false);
     }
   };
 
-  const handleDeleteBook = (bookId: string, e: React.MouseEvent) => {
+  const handleDeleteBook = async (bookId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm('确定要删除这本书吗？')) {
-      removeBook(bookId);
+    if (!confirm('确定要删除这本书吗？相关的书签、高亮和笔记也会被删除。')) {
+      return;
+    }
+
+    try {
+      await removeBook(bookId);
+    } catch (error) {
+      console.error('删除失败:', error);
     }
   };
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-6 h-full flex flex-col">
+      <div className="flex items-center justify-between mb-6 flex-shrink-0">
         <h1 className="text-2xl font-bold">我的书架</h1>
         <div className="flex items-center gap-3">
           <div className="relative">
@@ -76,57 +98,81 @@ export default function Library() {
 
           <button
             onClick={handleImportBook}
-            disabled={isLoading}
+            disabled={isLoading || importing}
             className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2"
           >
+            {(isLoading || importing) && <span className="animate-spin">⏳</span>}
             <span>+</span>
             导入书籍
           </button>
         </div>
       </div>
 
-      {books.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="text-6xl mb-4">📖</div>
-          <h2 className="text-xl font-semibold mb-2">书架空空如也</h2>
-          <p style={{ color: 'var(--secondary-color)' }} className="mb-6">
-            点击上方按钮导入你的第一本书
-          </p>
-          <button
-            onClick={handleImportBook}
-            className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-          >
-            导入示例书籍
-          </button>
-        </div>
-      ) : viewMode === 'grid' ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-          {filteredBooks.map((book) => (
-            <BookCard key={book.id} book={book} onOpen={() => navigate(`/reader/${book.id}`)} onDelete={(e) => handleDeleteBook(book.id, e)} />
-          ))}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {filteredBooks.map((book) => (
-            <BookListItem
-              key={book.id}
-              book={book}
-              onOpen={() => navigate(`/reader/${book.id}`)}
-              onDelete={(e) => handleDeleteBook(book.id, e)}
-            />
-          ))}
-        </div>
-      )}
+      <div className="flex-1 overflow-auto">
+        {isLoading && books.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="animate-spin text-4xl mb-4">⏳</div>
+            <p style={{ color: 'var(--secondary-color)' }}>加载中...</p>
+          </div>
+        ) : books.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="text-6xl mb-4">📖</div>
+            <h2 className="text-xl font-semibold mb-2">书架空空如也</h2>
+            <p style={{ color: 'var(--secondary-color)' }} className="mb-6">
+              点击上方按钮导入你的第一本书
+            </p>
+            <button
+              onClick={handleImportBook}
+              disabled={importing}
+              className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+            >
+              {importing ? '导入中...' : '导入书籍'}
+            </button>
+            {!isTauri && (
+              <p className="mt-4 text-xs" style={{ color: 'var(--secondary-color)' }}>
+                💡 当前为浏览器预览模式，数据保存在 localStorage
+              </p>
+            )}
+          </div>
+        ) : viewMode === 'grid' ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+            {filteredBooks.map((book) => (
+              <BookCard
+                key={book.id}
+                book={book}
+                onOpen={() => navigate(`/reader/${book.id}`)}
+                onDelete={(e) => handleDeleteBook(book.id, e)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {filteredBooks.map((book) => (
+              <BookListItem
+                key={book.id}
+                book={book}
+                onOpen={() => navigate(`/reader/${book.id}`)}
+                onDelete={(e) => handleDeleteBook(book.id, e)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function BookCard({ book, onOpen, onDelete }: { book: Book; onOpen: () => void; onDelete: (e: React.MouseEvent) => void }) {
+function BookCard({
+  book,
+  onOpen,
+  onDelete,
+}: {
+  book: Book;
+  onOpen: () => void;
+  onDelete: (e: React.MouseEvent) => void;
+}) {
   return (
-    <div
-      className="group cursor-pointer"
-      onClick={onOpen}
-    >
+    <div className="group cursor-pointer" onClick={onOpen}>
       <div className="relative aspect-[3/4] rounded-lg shadow-md overflow-hidden mb-2 group-hover:shadow-lg transition-shadow">
         {book.cover ? (
           <img src={book.cover} alt={book.title} className="w-full h-full object-cover" />
@@ -169,7 +215,15 @@ function BookCard({ book, onOpen, onDelete }: { book: Book; onOpen: () => void; 
   );
 }
 
-function BookListItem({ book, onOpen, onDelete }: { book: Book; onOpen: () => void; onDelete: (e: React.MouseEvent) => void }) {
+function BookListItem({
+  book,
+  onOpen,
+  onDelete,
+}: {
+  book: Book;
+  onOpen: () => void;
+  onDelete: (e: React.MouseEvent) => void;
+}) {
   return (
     <div
       className="flex items-center p-3 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer group"
@@ -180,7 +234,8 @@ function BookListItem({ book, onOpen, onDelete }: { book: Book; onOpen: () => vo
         {book.cover ? (
           <img src={book.cover} alt={book.title} className="w-full h-full object-cover" />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-xl"
+          <div
+            className="w-full h-full flex items-center justify-center text-xl"
             style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
           >
             📕
@@ -195,13 +250,19 @@ function BookListItem({ book, onOpen, onDelete }: { book: Book; onOpen: () => vo
         </p>
         {book.progress > 0 && (
           <div className="mt-1 h-1 bg-gray-200 rounded-full w-32">
-            <div className="h-full bg-blue-500 rounded-full" style={{ width: `${book.progress}%` }} />
+            <div
+              className="h-full bg-blue-500 rounded-full"
+              style={{ width: `${book.progress}%` }}
+            />
           </div>
         )}
       </div>
 
       <div className="flex items-center gap-3 ml-4">
-        <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: 'rgba(128,128,128,0.1)' }}>
+        <span
+          className="text-xs px-2 py-1 rounded"
+          style={{ backgroundColor: 'rgba(128,128,128,0.1)' }}
+        >
           {book.format.toUpperCase()}
         </span>
         <button

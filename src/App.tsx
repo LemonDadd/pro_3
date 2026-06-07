@@ -4,17 +4,21 @@ import Reader from './pages/Reader';
 import Notes from './pages/Notes';
 import Stats from './pages/Stats';
 import Layout from './components/Layout';
+import Toast from './components/Toast';
 
 function App() {
   return (
-    <Layout>
-      <Routes>
-        <Route path="/" element={<Library />} />
-        <Route path="/reader/:bookId" element={<Reader />} />
-        <Route path="/notes" element={<Notes />} />
-        <Route path="/stats" element={<Stats />} />
-      </Routes>
-    </Layout>
+    <>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<Library />} />
+          <Route path="/reader/:bookId" element={<Reader />} />
+          <Route path="/notes" element={<Notes />} />
+          <Route path="/stats" element={<Stats />} />
+        </Routes>
+      </Layout>
+      <Toast />
+    </>
   );
 }
 
