@@ -1,8 +1,11 @@
-const fs = require('fs');
-const path = require('path');
-const zlib = require('zlib');
+import fs from 'fs';
+import path from 'path';
+import zlib from 'zlib';
+import { fileURLToPath } from 'url';
 
-function createPNG(width, height) {
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function createPNG(width, height, r, g, b, pattern = 'book') {
   const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
   function createChunk(type, data) {
@@ -36,7 +39,6 @@ function createPNG(width, height) {
   const rawData = [];
   const cx = width / 2;
   const cy = height / 2;
-  const radius = width * 0.35;
 
   for (let y = 0; y < height; y++) {
     rawData.push(0);
@@ -44,10 +46,20 @@ function createPNG(width, height) {
       const dx = x - cx;
       const dy = y - cy;
       const dist = Math.sqrt(dx * dx + dy * dy);
+      const radius = width * 0.38;
+      
       if (dist < radius) {
-        rawData.push(255, 255, 255, 255);
+        const nx = dx / radius;
+        const ny = dy / radius;
+        const light = 1 - (nx * 0.3 + ny * 0.2);
+        rawData.push(
+          Math.min(255, Math.floor(255 * light)),
+          Math.min(255, Math.floor(200 * light)),
+          Math.min(255, Math.floor(120 * light)),
+          255
+        );
       } else {
-        rawData.push(30, 120, 200, 255);
+        rawData.push(r, g, b, 255);
       }
     }
   }
@@ -62,15 +74,82 @@ function createPNG(width, height) {
   return Buffer.concat([signature, ihdrChunk, idatChunk, iendChunk]);
 }
 
-const iconsDir = 'src-tauri/icons';
+const iconsDir = path.join(__dirname, 'src-tauri', 'icons');
+if (!fs.existsSync(iconsDir)) {
+  fs.mkdirSync(iconsDir, { recursive: true });
+}
 
-const sizes = [32, 128, 256];
-const names = ['32x32.png', '128x128.png', '128x128@2x.png'];
+const sizes = [
+  { size: 32, name: '32x32.png' },
+  { size: 128, name: '128x128.png' },
+  { size: 256, name: '128x128@2x.png' },
+  { size: 256, name: 'icon.png' },
+];
 
-sizes.forEach((size, i) => {
-  const png = createPNG(size, size);
-  fs.writeFileSync(path.join(iconsDir, names[i]), png);
-  console.log('Created:', names[i]);
+sizes.forEach(({ size, name }) => {
+  const png = createPNG(size, size, 30, 120, 200);
+  fs.writeFileSync(path.join(iconsDir, name), png);
+  console.log('Created:', name);
 });
 
-console.log('Icons created successfully');
+function createICNS(pngBuffer, size) {
+  const iconTypes = {
+    16: 'icp4',
+    32: 'icp5',
+    64: 'icp6',
+    128: 'ic07',
+    256: 'ic08',
+    512: 'ic09',
+  };
+
+  const type = iconTypes[size] || 'ic07';
+  const typeBuffer = Buffer.from(type, 'ascii');
+  const dataLength = pngBuffer.length + 8;
+  const lengthBuffer = Buffer.alloc(4);
+  lengthBuffer.writeUInt32BE(dataLength, 0);
+  
+  return Buffer.concat([typeBuffer, lengthBuffer, pngBuffer]);
+}
+
+const icnsSizes = [16, 32, 64, 128, 256, 512];
+const icnsEntries = [];
+
+for (const size of icnsSizes) {
+  const png = createPNG(size, size, 30, 120, 200);
+  icnsEntries.push(createICNS(png, size));
+}
+
+const icnsData = Buffer.concat(icnsEntries);
+const icnsHeader = Buffer.alloc(8);
+icnsHeader.write('icns', 0, 'ascii');
+icnsHeader.writeUInt32BE(icnsData.length + 8, 4);
+
+const icnsFile = Buffer.concat([icnsHeader, icnsData]);
+fs.writeFileSync(path.join(iconsDir, 'icon.icns'), icnsFile);
+console.log('Created: icon.icns');
+
+function createICO(pngBuffer) {
+  const icoHeader = Buffer.alloc(6);
+  icoHeader.writeUInt16LE(0, 0);
+  icoHeader.writeUInt16LE(1, 2);
+  icoHeader.writeUInt16LE(1, 4);
+
+  const iconDir = Buffer.alloc(16);
+  iconDir.writeUInt8(32, 0);
+  iconDir.writeUInt8(32, 1);
+  iconDir.writeUInt8(0, 2);
+  iconDir.writeUInt8(0, 3);
+  iconDir.writeUInt16LE(1, 4);
+  iconDir.writeUInt16LE(32, 6);
+  iconDir.writeUInt32LE(pngBuffer.length, 8);
+  iconDir.writeUInt32LE(22, 12);
+
+  return Buffer.concat([icoHeader, iconDir, pngBuffer]);
+}
+
+const icon32 = createPNG(32, 32, 30, 120, 200);
+const icoFile = createICO(icon32);
+fs.writeFileSync(path.join(iconsDir, 'icon.ico'), icoFile);
+console.log('Created: icon.ico');
+
+console.log('\nAll icons created successfully!');

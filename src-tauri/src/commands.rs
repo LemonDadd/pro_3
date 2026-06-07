@@ -1,9 +1,9 @@
 use crate::db::Database;
-use crate::models::{Book, Bookmark, Highlight, Note, ReadingProgress, SearchResult, TocItem};
-use crate::epub_utils::{EpubParser, copy_book_to_library, get_file_size};
-use std::sync::Mutex;
-use tauri::{State, AppHandle, Manager};
+use crate::epub_utils::{copy_book_to_library, get_file_size, EpubParser};
+use crate::models::{Book, Bookmark, Highlight, Note, SearchResult, TocItem};
 use std::path::PathBuf;
+use std::sync::Mutex;
+use tauri::State;
 
 pub struct AppState {
     pub db: Mutex<Database>,
@@ -24,10 +24,9 @@ pub fn get_book(book_id: String, state: State<AppState>) -> Result<Option<Book>,
 }
 
 #[tauri::command]
-pub async fn import_book(
-    app: AppHandle,
+pub fn import_book(
     file_path: String,
-    state: State<'_, AppState>,
+    state: State<AppState>,
 ) -> Result<Book, String> {
     let path = PathBuf::from(&file_path);
     if !path.exists() {
